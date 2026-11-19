@@ -81,7 +81,7 @@ pip install -r requirements.txt
    python -m guardian.gmail_auth
    ```
 
-   Open the URL it prints, sign in with the test account, and approve access. The token is saved to `/gmail_token.json` with restricted permissions.
+   Open the URL it prints, sign in with the test account, and approve access. The token is saved to `/token.json` with restricted permissions.
 
 Testing-mode tokens expire after about seven days. When that happens, run the same command again.
 

@@ -28,7 +28,11 @@ SCOPES = [
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/gmail.compose",
 ]
-TOKEN_PATH = Path.cwd() / "gmail_token.json"
+
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+TOKEN_PATH = PROJECT_ROOT / "token.json"
 
 _SEARCH_SCHEMA: dict[str, Any] = {
     "type": "object",

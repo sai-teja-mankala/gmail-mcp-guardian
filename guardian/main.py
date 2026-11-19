@@ -24,17 +24,17 @@ from pathlib import Path
 if __package__ in (None, ""):  # allow `python guardian/main.py`
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from dotenv import load_dotenv  # noqa: E402
-from mcp.server.stdio import stdio_server  # noqa: E402
-from PySide6.QtWidgets import QApplication  # noqa: E402
+from dotenv import load_dotenv 
+from mcp.server.stdio import stdio_server
+from PySide6.QtWidgets import QApplication
 
-from guardian.approval import ApprovalBroker  # noqa: E402
-from guardian.audit import setup_logging  # noqa: E402
-from guardian.gmail import GmailUpstream  # noqa: E402
-from guardian.guard import ToolGateway  # noqa: E402
-from guardian.server import build_server  # noqa: E402
-from guardian.ui import ApprovalBridge, ApprovalController  # noqa: E402
-from guardian.upstream import RoutingUpstream, UpstreamConfig, UpstreamManager  # noqa: E402
+from guardian.approval import ApprovalBroker
+from guardian.audit import setup_logging
+from guardian.gmail import GmailUpstream
+from guardian.guard import ToolGateway
+from guardian.server import build_server
+from guardian.ui import ApprovalBridge, ApprovalController
+from guardian.upstream import RoutingUpstream, UpstreamConfig, UpstreamManager
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG = ROOT / "guardian.config.json"
