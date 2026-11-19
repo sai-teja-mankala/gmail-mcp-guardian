@@ -1,159 +1,436 @@
 # MCP Guardian
 
-MCP Guardian is a security gateway between an MCP host (such as Claude Desktop) and tool servers. Each tool call shows an approval popup. The tool runs only after the user clicks **Allow**. Block, timeout, popup failure, or any Guardian error denies the call.
+**A security and approval gateway for Model Context Protocol (MCP) tool execution.**
 
-## Scope
+MCP Guardian is a security middleware layer between an MCP host (such as Claude Desktop) and MCP tool servers. It intercepts tool calls and requires explicit user approval before allowing them to execute.
 
-| Feature | Status |
+Every tool invocation triggers an approval popup where the user can choose **Allow** or **Block**. A tool executes only after explicit approval. If a request times out, the popup fails, an invalid decision is received, or Guardian encounters an internal error, the request is denied.
+
+The goal is simple: **No tool execution without user approval.**
+
+## Architecture
+
+```text
+                  MCP Host
+               Claude Desktop
+                      |
+                      | MCP (STDIO)
+                      v
+              +------------------+
+              |   MCP Guardian   |
+              |                  |
+              |  Tool Discovery  |
+              |  Validation      |
+              |  Approval        |
+              |  Audit Logging   |
+              +------------------+
+                      |
+             +--------+--------+
+             |                 |
+             v                 v
+       Built-in Tools    Upstream MCP Servers(extendeble)
+             |                 
+             v                 
+          Gmail API       
+
+                      |
+                      v
+                Approval Popup
+                 Allow / Block
+```
+
+## Execution Flow
+
+Every tool call follows the same controlled execution path:
+
+1. **Tool Discovery:** Guardian discovers tools from its built-in integrations and configured upstream MCP servers.
+2. **Tool Invocation:** The MCP host sends a tool call to Guardian.
+3. **Validation:** Guardian validates the requested tool name and arguments.
+4. **Approval Request:** Guardian creates an approval request and displays the popup.
+5. **User Decision:** The user explicitly chooses Allow or Block.
+6. **Execution:** If approved, Guardian forwards the request to the corresponding tool implementation or upstream server.
+7. **Response:** Guardian returns the execution result or error to the MCP host.
+8. **Audit Logging:** The approval decision and execution outcome are recorded.
+
+### Fail-Closed Security
+
+Guardian follows a fail-closed execution model:
+
+- Only an explicit Allow decision permits execution.
+- Block decisions immediately deny execution.
+- Approval timeouts result in denial.
+- Popup failures and unexpected UI errors result in denial.
+- Unknown tools and invalid arguments are rejected.
+- Duplicate or stale approval decisions are rejected.
+- Shutdown with pending requests denies those requests.
+- Upstream execution errors are returned without bypassing the approval gateway.
+
+## Project Structure
+
+```text
+MCP-Guardian/
+│
+├── guardian/
+│   ├── __init__.py
+│   ├── main.py
+│   ├── guard.py
+│   ├── approval.py
+│   ├── ui.py
+│   ├── gmail.py
+│   ├── gmail_auth.py
+│   ├── upstream.py
+│   └── audit.py
+│
+├── tests/
+│
+├── logs/
+│
+├── .venv/
+├── .env
+├── .env.example
+├── token.json
+├── guardian.config.json
+├── guardian.config.example.json
+├── requirements.txt
+├── pytest.ini
+└── README.md
+```
+
+### Core Components
+
+| Component | Responsibility |
 |---|---|
-| Claude Desktop connection (STDIO) | Implemented |
-| Approval popup: Allow, Block, timeout, one-at-a-time queue | Implemented |
-| Fail-closed handling: unknown tool, invalid arguments, popup failure, upstream error | Implemented, unit-tested |
-| Built-in Gmail tools: `search_mails`, `create_draft` | Implemented |
-| Additional STDIO upstream servers | Implemented |
-| Claude Web (remote HTTPS gateway) | Not implemented |
+| `main.py` | Application entry point and MCP server initialization |
+| `guard.py` | Central tool execution gateway, validation, approval enforcement, and forwarding |
+| `approval.py` | Approval request lifecycle, request IDs, timeouts, and decision handling |
+| `ui.py` | User approval popup |
+| `gmail.py` | Built-in Gmail tool implementations and OAuth token handling |
+| `gmail_auth.py` | Gmail OAuth authorization |
+| `upstream.py` | Connections to optional upstream STDIO MCP servers |
+| `audit.py` | Audit logging and sensitive-data redaction |
 
-## How it works
-
-```
-Claude Desktop --STDIO--> Guardian --> Gmail API (built-in)
-                             |     --> other STDIO MCP servers (optional)
-                             +-- approval popup (Allow / Block)
-```
-
-- `guardian/guard.py`: the only path to tools. Validates the tool name and arguments, asks for approval, and forwards only after Allow.
-- `guardian/approval.py`: tracks each request by ID. Timeouts, duplicate or stale decisions, and shutdown all deny.
-- `guardian/ui.py`: the approval popup.
-- `guardian/gmail.py`: Gmail tools and OAuth token handling.
-- `guardian/gmail_auth.py`: one-time Gmail authorization command.
-- `guardian/upstream.py`: connects to optional STDIO servers. Tools are named `<server>__<tool>`.
-- `guardian/audit.py`: writes to `logs/guardian.log` and stderr, with sensitive values redacted. Stdout is reserved for the MCP protocol.
+All tool execution must pass through `guard.py`. This ensures that built-in tools and upstream tools follow the same approval enforcement mechanism.
 
 ## Requirements
 
 - Python 3.12 or newer
-- A Google Cloud OAuth client of type **Desktop app**, and a test Gmail account
 - Claude Desktop
-- A desktop session that can display a window
+- A desktop environment capable of displaying approval popups
+- Google Cloud project with Gmail API enabled (for the built-in Gmail integration)
+- Google OAuth client of type **Desktop app**
 
-On Linux, the popup needs the Qt runtime libraries, such as `libgl1`, `libxkbcommon0`, and `libdbus-1-3`, installed through your package manager.
+On Linux, the approval popup requires Qt runtime libraries. Depending on the distribution, these may include:
 
-## Setup
-
-### 1. Create the environment
-
-From the repo root:
-
+```bash
+sudo apt install libgl1 libxkbcommon0 libdbus-1-3
 ```
-python3.14 -m venv .venv                  # any Python 3.12+
-<venv activate command>                   # see below
+
+## Installation and Setup
+
+### 1. Clone the repository
+
+```bash
+git clone <REPOSITORY_URL>
+cd MCP-Guardian
+```
+
+### 2. Create a virtual environment
+
+```bash
+python3 -m venv .venv
+```
+
+Activate the environment:
+
+**Linux / macOS**
+
+```bash
+source .venv/bin/activate
+```
+
+**Windows**
+
+```powershell
+.venv\Scripts\activate
+```
+
+Install dependencies:
+
+```bash
 pip install -r requirements.txt
 ```
 
-| System | Activate | Venv Python |
-|---|---|---|
-| macOS / Linux | `source .venv/bin/activate` | `.venv/bin/python` |
-| Windows | `.venv\Scripts\activate` | `.venv\Scripts\python.exe` |
+### 3. Configure Gmail OAuth
 
-### 2. Run the tests
+This step is required only when using the built-in Gmail integration.
 
+**Google Cloud configuration**
+
+1. Open the Google Cloud Console.
+2. Create or select a Google Cloud project.
+3. Enable the Gmail API.
+4. Configure the OAuth consent screen.
+5. Under **Audience → Test users**, add the Gmail account you want to authorize.
+6. Create an OAuth client with application type **Desktop app**.
+7. Copy the generated Client ID and Client Secret.
+
+**Configure environment variables**
+
+Create a `.env` file in the repository root using `.env.example` as a reference.
+
+```env
+GMAIL_CLIENT_ID=<your-client-id>
+GMAIL_CLIENT_SECRET=<your-client-secret>
 ```
-<venv python> -m pytest -v
+
+Keep this file private. Never commit or share your OAuth credentials.
+
+**Authorize Gmail**
+
+With the virtual environment activated, run:
+
+```bash
+python -m guardian.gmail_auth
 ```
 
-### 3. Set up Google OAuth
+Open the authorization URL printed by the command, sign in with your test Gmail account, and approve the requested permissions.
 
-1. In Google Cloud Console, enable the Gmail API and configure the OAuth consent screen.
-2. Under **Audience → Test users**, add your test Gmail address.
-3. Create an OAuth client of type **Desktop app**.
-4. Create a `.env` file in the repo root, based on `.env.example`:
+The OAuth token is saved as `token.json` in the repository root, alongside `.env`, with restricted file permissions.
 
-   ```
-   GMAIL_CLIENT_ID=<your client ID>
-   GMAIL_CLIENT_SECRET=<your client secret>
-   ```
-
-   Save the file as plain text with no quotes. Do not share these values or commit the file.
-
-5. Authorize Gmail once, from the repo root, with the venv active:
-
-   ```
-   python -m guardian.gmail_auth
-   ```
-
-   Open the URL it prints, sign in with the test account, and approve access. The token is saved to `/token.json` with restricted permissions.
-
-Testing-mode tokens expire after about seven days. When that happens, run the same command again.
+> **Note:** Google OAuth applications in Testing mode generally have refresh tokens that expire after seven days. If the token expires, run the authorization command again.
 
 ### 4. Configure Guardian
 
-```
+Create the configuration file:
+
+```bash
 cp guardian.config.example.json guardian.config.json
 ```
 
-- `gmail.enabled` turns the built-in Gmail tools on or off.
-- `gmail.allowed_tools` limits which tools are exposed. The default is `search_mails` and `create_draft`.
-- `upstreams` lists optional STDIO MCP servers. Leave it empty to use only the built-in tools.
+On Windows, you can copy the file using:
 
-`guardian.config.json` and `.env` are gitignored.
+```powershell
+Copy-Item guardian.config.example.json guardian.config.json
+```
 
-### 5. Connect Claude Desktop
+Configure the following settings:
 
-Open Claude Desktop, go to **Settings → Developer → Edit Config**, and add the `gmail-guardian` entry under `mcpServers` at the top level of the file. Replace the placeholders with your paths. On Windows, escape backslashes as `\\`.
+- `gmail.enabled`: Enables or disables the built-in Gmail integration.
+- `gmail.allowed_tools`: Controls which Gmail tools are exposed. The default tools are `search_mails` and `create_draft`.
+- `upstreams`: Defines optional upstream STDIO MCP servers and their configurations.
+
+You can leave `upstreams` empty if you only want to use the built-in Gmail tools.
+
+The `.env`, `guardian.config.json`, OAuth token files, and logs should remain excluded from version control.
+
+### 5. Run the tests
+
+Run the test suite before connecting Guardian to an MCP host:
+
+```bash
+python -m pytest -v
+```
+
+Ensure the tests pass, particularly those covering:
+
+- Approval and denial decisions
+- Approval timeouts
+- Invalid tool names and arguments
+- Popup failures
+- Duplicate and stale approval decisions
+- Concurrent tool requests
+- Fail-closed execution behavior
+
+## Connecting to Claude Desktop
+
+Guardian runs as an MCP server using the STDIO transport.
+
+### 1. Open Claude Desktop configuration
+
+Navigate to:
+
+**Settings → Developer → Edit Config**
+
+### 2. Add the Guardian MCP server
+
+Add the following configuration under the top-level `mcpServers` object:
+
+**Linux / macOS**
 
 ```json
 {
   "mcpServers": {
     "gmail-guardian": {
-      "command": "<REPO_PATH>/.venv/bin/python",
-      "args": ["<REPO_PATH>/guardian/main.py"]
+      "command": "/absolute/path/to/MCP-Guardian/.venv/bin/python",
+      "args": [
+        "/absolute/path/to/MCP-Guardian/guardian/main.py"
+      ]
     }
   }
 }
 ```
 
-On Windows, use `<REPO_PATH>\\.venv\\Scripts\\python.exe` for `command` and `<REPO_PATH>\\guardian\\main.py` for the argument.
+**Windows**
 
-Fully quit Claude Desktop, including from the system tray, then reopen it. Remove any direct Gmail connector in Claude, or Claude can reach Gmail without the popup.
-
-## Running
-
-Claude Desktop starts Guardian automatically. To run it manually for debugging, activate the venv and run:
-
+```json
+{
+  "mcpServers": {
+    "gmail-guardian": {
+      "command": "C:\\path\\to\\MCP-Guardian\\.venv\\Scripts\\python.exe",
+      "args": [
+        "C:\\path\\to\\MCP-Guardian\\guardian\\main.py"
+      ]
+    }
+  }
+}
 ```
+
+Replace the example paths with the actual absolute paths to your repository.
+
+### 3. Restart Claude Desktop
+
+1. Save the configuration file.
+2. Fully quit Claude Desktop, including from the system tray.
+3. Reopen Claude Desktop.
+4. Verify that Guardian connects successfully.
+5. Confirm that the configured tools are available.
+
+Remove any direct integration that exposes the same protected tools without passing through Guardian. Otherwise, those tools could be invoked without Guardian's approval.
+
+## Running Guardian Manually
+
+Claude Desktop normally launches Guardian automatically when it connects to the configured MCP server.
+
+For local debugging or development, you can start Guardian manually.
+
+Activate the virtual environment:
+
+```bash
+source .venv/bin/activate
+```
+
+Run the application from the repository root:
+
+```bash
 python guardian/main.py
 ```
 
-It reads MCP messages from stdin, so start it from a terminal and stop it with Ctrl+C. A healthy start logs `serving N exposed tools over STDIO`.
+On Windows, activate the environment using:
 
-## Logs
+```powershell
+.venv\Scripts\activate
+```
 
-- `logs/guardian.log` records each decision: `approval requested`, then `ALLOWED` or `BLOCKED`, then `OUTCOME`.
-- Search queries appear in plain text. Keep the log private.
-- Tokens are never logged. Fields such as `body` and `content` are redacted.
+Then run:
 
-## Test checklist
+```powershell
+python guardian/main.py
+```
 
-- [ ] `pytest` passes
-- [ ] `gmail_auth` saves a token, and Guardian starts with the expected tool count
-- [ ] **Allow:** a Gmail search shows the popup, and Allow returns results
-- [ ] **Block:** clicking Block denies the call, and the log shows `BLOCKED` with no forwarded `OUTCOME`
-- [ ] **Draft block:** blocking a draft creates nothing in Gmail
-- [ ] **Draft allow:** allowing a draft creates one draft, and nothing is sent
-- [ ] **Timeout:** an unanswered popup is denied after 90 seconds
-- [ ] **Concurrency:** several calls show one popup at a time, each with its own decision
-- [ ] **Popup closed:** closing the popup while requests are pending denies them
+Guardian reads MCP messages from stdin and writes protocol responses to stdout. It is therefore intended to run as an MCP subprocess rather than as a normal interactive terminal application.
 
-## Security notes
+Stop manual execution with `Ctrl+C`.
 
-- Guardian fails closed. Timeouts, popup failures, invalid decisions, and upstream errors deny the call or return an error. Tools are never called without Allow.
-- The Gmail tools request read and compose scopes only. Sending is not implemented.
-- Use a test Gmail account, not a primary inbox.
-- Never commit `.env`, `guardian.config.json`, OAuth JSON files, token files, or `logs/`.
+A successful startup should produce a log message similar to:
 
-## Limitations
+```text
+serving N exposed tools over STDIO
+```
 
-- Only Gmail is built in. Other services need a STDIO MCP server.
-- Testing-mode Google tokens expire after about seven days.
-- Claude Web (remote mode), pairing, and per-user isolation are not implemented.
-- The Gmail code has not yet been run against a live account.
+**Important:** Stdout must remain reserved for MCP protocol messages. Application logs and OAuth status messages should be written to stderr or the audit log.
+
+## Audit Logging
+
+Guardian records approval decisions and execution outcomes in:
+
+```text
+logs/guardian.log
+```
+
+Typical audit events include:
+
+```text
+approval requested
+ALLOWED
+BLOCKED
+OUTCOME
+```
+
+The logs help track:
+
+- Which tool was requested
+- Whether approval was granted or denied
+- Whether execution succeeded or failed
+- Why a request was rejected
+
+Search queries may appear in plain text. Keep audit logs private.
+
+Sensitive fields such as `body` and `content` are redacted, and OAuth tokens are never logged.
+
+## Testing Checklist
+
+Use the following scenarios to validate the complete execution flow:
+
+- [ ] All unit tests pass.
+- [ ] Gmail OAuth authorization completes successfully.
+- [ ] Guardian starts and exposes the expected tools.
+- [ ] **Allow:** A Gmail search displays the approval popup and returns results after approval.
+- [ ] **Block:** Blocking a Gmail search prevents execution.
+- [ ] **Draft Block:** Blocking a draft request creates nothing in Gmail.
+- [ ] **Draft Allow:** Approving a draft request creates a draft without sending an email.
+- [ ] **Timeout:** An unanswered approval request is denied after 90 seconds.
+- [ ] **Concurrency:** Multiple requests display one popup at a time, with independent approval decisions.
+- [ ] **Popup Closed:** Closing the popup while requests are pending denies those requests.
+- [ ] **Invalid Tool:** An unknown tool request is rejected.
+- [ ] **Invalid Arguments:** Invalid tool arguments are rejected before execution.
+- [ ] **Upstream Failure:** An upstream error is handled without bypassing Guardian's approval flow.
+
+## Security Considerations
+
+- **Explicit approval:** Tool execution requires an explicit Allow decision.
+- **Fail-closed enforcement:** Errors, timeouts, and popup failures never grant permission.
+- **Centralized execution:** All exposed tool calls pass through the same Guardian gateway.
+- **Argument validation:** Tool names and arguments are validated before execution.
+- **Auditability:** Approval decisions and execution outcomes are logged.
+- **Sensitive-data protection:** OAuth tokens are never logged, and sensitive fields are redacted.
+- **Least privilege:** The built-in Gmail integration requests read and compose permissions only.
+- **No email sending:** Gmail integration currently supports searching emails and creating drafts. Sending emails is not implemented.
+
+Use a dedicated test Gmail account rather than your primary inbox.
+
+Never commit or share:
+
+- `.env`
+- `guardian.config.json`
+- `token.json`
+- OAuth client credentials
+- Other OAuth credential files
+- `logs/`
+
+## Current Integrations
+
+The current implementation includes:
+
+- **Built-in Gmail integration:** `search_mails` and `create_draft`.
+- **Upstream MCP integration:** Connect additional STDIO-based MCP servers and expose their tools through Guardian.
+
+Upstream tools use the naming convention:
+
+```text
+<server>__<tool>
+```
+
+For example:
+
+```text
+filesystem__read_file
+github__search_repositories
+```
+
+All exposed tools use the same centralized approval and execution flow.
+
+---
+
+## License
+
+Add your chosen open-source license here before publishing the repository.
