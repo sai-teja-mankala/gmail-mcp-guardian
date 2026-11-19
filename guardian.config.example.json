@@ -1,0 +1,10 @@
+{
+  "timeout_seconds": 90,
+  "max_pending": 30,
+  "log_file": "logs/guardian.log",
+  "gmail": {
+    "enabled": true,
+    "allowed_tools": ["search_mails", "create_draft"]
+  },
+  "upstreams": []
+}

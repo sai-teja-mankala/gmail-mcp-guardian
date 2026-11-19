@@ -1,0 +1,12 @@
+# Minimum versions. Pin exact versions with `pip freeze` after a successful install
+# on the target machine (guide section 18 asks for tested versions).
+# Pinned to the 1.x line: server.py/upstream.py use the v1 lowlevel Server API.
+# mcp 2.x (installed by an unpinned `pip install mcp`) removed Server.list_tools.
+mcp>=1.10,<2
+PySide6>=6.6
+jsonschema>=4.18
+python-dotenv>=1.0
+pytest>=8.0
+pytest-asyncio>=0.23
+google-api-python-client>=2.100
+google-auth-oauthlib>=1.2
